@@ -2,83 +2,89 @@ import cv2
 import numpy as np
 import pygetwindow as gw
 import pyautogui
-from PIL import Image
+import mediapipe as mp
 
-# --- 1. ตั้งค่าช่วงสี HSV 5 สีเหมือนเดิม ---
-color_ranges = {
-    "RED": {"lower": np.array([0, 120, 70]), "upper": np.array([10, 255, 255]), "bgr_color": (0, 0, 255)},
-    "YELLOW": {"lower": np.array([15, 100, 100]), "upper": np.array([35, 255, 255]), "bgr_color": (0, 255, 255)},
-    "GREEN": {"lower": np.array([36, 100, 100]), "upper": np.array([85, 255, 255]), "bgr_color": (0, 255, 0)},
-    "BLUE": {"lower": np.array([90, 100, 100]), "upper": np.array([130, 255, 255]), "bgr_color": (255, 0, 0)},
-    "ORANGE": {"lower": np.array([11, 100, 100]), "upper": np.array([25, 255, 255]), "bgr_color": (0, 165, 255)}
-}
+# --- 1. ตั้งค่าระบบ AI ของ MediaPipe ---
+mp_hands = mp.solutions.hands
+mp_draw = mp.solutions.drawing_utils
+# max_num_hands=1 คือจับแค่มือเดียวพอมึง จะได้ไม่เอ๋อเวลาคนอื่นเดินผ่าน
+hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7, min_tracking_confidence=0.7)
+
+# ลำดับ ID ของปลายนิ้วทั้ง 5 ในระบบ AI (นิ้วโป้ง, ชี้, กลาง, นาง, ก้อย)
+tip_ids = [4, 8, 12, 16, 20]
 
 print("กำลังตามล่าหาหน้าต่างโปรแกรม Iriun Webcam...")
-
 while True:
-    # 2. ค้นหาหน้าต่างโปรแกรม Iriun บน Windows มึง
-    # ชื่อหน้าต่างปกติของมันจะขึ้นต้นด้วย 'Iriun'
     windows = gw.getWindowsWithTitle('Iriun Webcam')
-    
-    if not windows:
-        print("❌ หลงทางเว้ย! ไม่เจอโปรแกรม Iriun Webcam เปิดทิ้งไว้บนจอคอมเลย มึงลืมเปิดป่ะเนี่ย?")
-        cv2.waitKey(2000) # รอ 2 วิแล้วหาใหม่
-        continue
-        
-    # เจอแล้ว ดึงหน้าต่างตัวแรกมาใช้งาน
-    iriun_win = windows[0]
-    
-    # เช็กว่าหน้าต่างไม่ได้โดนย่อเก็บไว้ (Minimized)
-    if iriun_win.isMinimized:
-        print("⚠️ มึงย่อหน้าต่าง Iriun เก็บไว้ในแถบข้างล่างอยู่! ขยายมันขึ้นมาด่วน ไม่งั้นแคปภาพไม่ได้")
-        cv2.waitKey(1000)
-        continue
-        
-    break
+    if windows and not windows[0].isMinimized:
+        iriun_win = windows[0]
+        break
+    print("❌ รอขยายหน้าต่าง Iriun Webcam แป๊บมึง...")
+    cv2.waitKey(1000)
 
-print("✅ เจอหน้าต่าง Iriun แล้ว! เริ่มสับภาพแบบ Real-time...")
+print("✅ AI ระบบ Hand Tracking เริ่มทำงานแล้วเว้ย! ชูมือขึ้นมาเลยมึง")
 
 while True:
-    # 3. ดึงพิกัดตำแหน่งของหน้าต่าง Iriun บนจอคอมพิวเตอร์
+    # 2. แคปภาพจากหน้าต่าง Iriun
     x, y, width, height = iriun_win.left, iriun_win.top, iriun_win.width, iriun_win.height
-    
-    # กรองกรณีพิกัดเพี้ยน
     if width <= 0 or height <= 0: continue
-
-    # 4. แคปเจอร์หน้าจอเฉพาะตรงพิกัดของหน้าต่าง Iriun
-    screenshot = pyautogui.screenshot(region=(x, y, width, height))
     
-    # 5. แปลงภาพจาก PIL Image ให้กลายเป็น Array แบบที่ OpenCV เข้าใจ
+    screenshot = pyautogui.screenshot(region=(x, y, width, height))
     frame = np.array(screenshot)
     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-
-    # 6. แปลงเป็น HSV เพื่อวิ่งสแกนหาจุดสีวัตถุ
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-
-    for color_name, values in color_ranges.items():
-        mask = cv2.inRange(hsv, values["lower"], values["upper"])
-        contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        
-        for c in contours:
-            if cv2.contourArea(c) < 500: continue
+    
+    # 3. แปลงภาพเป็น RGB ส่งให้ AI ประมวลผล (MediaPipe ชอบ RGB)
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = hands.process(rgb_frame)
+    
+    finger_count = 0
+    
+    # 4. ถ้า AI เจอพิกัดมือในหน้าจอ
+    if results.multi_hand_landmarks:
+        for hand_landmarks in results.multi_hand_landmarks:
+            # วาดเส้นกระดูกโครงสร้างมือสีแดง-ฟ้า แปะลงบนหน้าจอโชว์ความเท่
+            mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+            
+            # ดึงพิกัด (X, Y) ของข้อต่อทั้ง 21 จุดออกมาเก็บไว้ในลิสต์
+            landmarks = []
+            for lm in hand_landmarks.landmark:
+                # แปลงค่าพิกัดสัดส่วน (0.0 - 1.0) ให้กลับมาเป็นพิกเซลจริงตามขนาดหน้าจอ
+                h, w, c = frame.shape
+                cx, cy = int(lm.x * w), int(lm.y * h)
+                landmarks.append((cx, cy))
+            
+            if len(landmarks) != 0:
+                fingers = []
                 
-            bx, by, bw, bh = cv2.boundingRect(c)
-            center_x = int(bx + (bw / 2))
-            center_y = int(by + (bh / 2))
-            
-            # ตีกรอบและพ่นค่าพิกัดลงบนภาพที่แคปมา
-            cv2.rectangle(frame, (bx, by), (bx + bw, by + bh), values["bgr_color"], 2)
-            cv2.circle(frame, (center_x, center_y), 5, values["bgr_color"], -1)
-            
-            label = f"{color_name} ({center_x}, {center_y})"
-            cv2.putText(frame, label, (bx, by - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, values["bgr_color"], 2)
+                # 👍 เช็กนิ้วโป้ง (เช็กแนวแกน X ว่าปลายนิ้วอยู่เลยข้อต่อออกไปด้านข้างไหม)
+                # เช็กว่ามึงใช้มือซ้ายหรือมือขวา โดยดูพิกัดข้อมือเปรียบเทียบ
+                if landmarks[tip_ids[0]][0] > landmarks[tip_ids[0] - 1][0]:
+                    fingers.append(1) # ชูนิ้ว
+                else:
+                    fingers.append(0) # พับนิ้ว
+                
+                # ☝️ ชี้, 🖕 กลาง, 💍 นาง, 🤙 ก้อย (เช็กแนวแกน Y ว่าปลายนิ้วอยู่สูงกว่าข้อต่อถัดไปด้านล่างไหม)
+                for id in range(1, 5):
+                    if landmarks[tip_ids[id]][1] < landmarks[tip_ids[id] - 2][1]:
+                        fingers.append(1) # ปลายนิ้วอยู่สูงกว่าข้อต่อ แปลว่าชูขึ้นมา
+                    else:
+                        fingers.append(0) # พับนิ้วลงไป
+                
+                # นับจำนวนเลข 1 ในลิสต์ ก็จะได้จำนวนนิ้วที่ชูจริงๆ
+                finger_count = fingers.count(1)
 
-    # 7. โชว์หน้าต่าง OpenCV แยกออกมาอีกอันเพื่อดูผลการจับสี
-    cv2.imshow('OpenCV Screen Capture Tracking', frame)
+    # 5. วาดกล่อง GUI โชว์จำนวนนิ้วแบบคลีนๆ
+    cv2.rectangle(frame, (10, 10), (320, 80), (0, 0, 0), -1)
+    text = f"AI FINGERS: {finger_count}"
+    # สลับสีข้อความตามจำนวนนิ้ว เล่นกิมมิคนิดหน่อย
+    text_color = (0, 255, 0) if finger_count > 0 else (0, 0, 255)
+    cv2.putText(frame, text, (20, 55), cv2.FONT_HERSHEY_SIMPLEX, 1.2, text_color, 3)
 
-    # กด 'q' เพื่อปิด
+    # 6. แสดงหน้าจอผลลัพธ์
+    cv2.imshow('AI Hand Tracking Counter', frame)
+
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
 cv2.destroyAllWindows()
-print("ปิดโปรแกรมแล้วมึง")
+print("ปิดระบบ AI แล้วมึง")
