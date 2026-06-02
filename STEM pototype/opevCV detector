@@ -2,48 +2,13 @@ import cv2
 import numpy as np
 import pygetwindow as gw
 import pyautogui
+from ultralytics import YOLO
 
-# --- 💡 มหากาพย์ดิกชันนารี 24 เฉดสี (สแกนทั่วสเปกตรัม HSV) ---
-# บล็อกสีใกล้กัน กุบีบช่วง Hue ให้แคบลงเพื่อป้องกันมันแย่งกรอบกันเองนะมึง
-color_ranges = {
-    # [1-4: โทนแดง-ส้ม]
-    "RED_PURE": {"lower": np.array([0, 160, 80]), "upper": np.array([5, 255, 255]), "bgr_color": (0, 0, 255)},
-    "RED_ORANGE": {"lower": np.array([6, 160, 80]), "upper": np.array([12, 255, 255]), "bgr_color": (0, 64, 255)},
-    "ORANGE_PURE": {"lower": np.array([13, 160, 80]), "upper": np.array([20, 255, 255]), "bgr_color": (0, 128, 255)},
-    "ORANGE_YELLOW": {"lower": np.array([21, 160, 80]), "upper": np.array([26, 255, 255]), "bgr_color": (0, 192, 255)},
-    
-    # [5-8: โทนเหลือง-เขียวตอง]
-    "YELLOW_PURE": {"lower": np.array([27, 130, 90]), "upper": np.array([34, 255, 255]), "bgr_color": (0, 255, 255)},
-    "YELLOW_GREEN": {"lower": np.array([35, 130, 80]), "upper": np.array([45, 255, 255]), "bgr_color": (0, 255, 192)},
-    "LIME_GREEN": {"lower": np.array([46, 120, 70]), "upper": np.array([59, 255, 255]), "bgr_color": (0, 255, 128)},
-    "GREEN_PURE": {"lower": np.array([60, 120, 70]), "upper": np.array([80, 255, 255]), "bgr_color": (0, 255, 0)},
-    
-    # [9-12: โทนเขียวแก่-ฟ้า]
-    "DARK_GREEN": {"lower": np.array([81, 120, 40]), "upper": np.array([90, 255, 150]), "bgr_color": (0, 100, 0)},
-    "CYAN_GREEN": {"lower": np.array([91, 120, 70]), "upper": np.array([98, 255, 255]), "bgr_color": (128, 255, 0)},
-    "CYAN_PURE": {"lower": np.array([99, 120, 70]), "upper": np.array([105, 255, 255]), "bgr_color": (255, 255, 0)},
-    "SKY_BLUE": {"lower": np.array([106, 120, 70]), "upper": np.array([112, 255, 255]), "bgr_color": (255, 192, 0)},
-    
-    # [13-16: โทนน้ำเงิน-ม่วง]
-    "BLUE_PURE": {"lower": np.array([113, 130, 70]), "upper": np.array([124, 255, 255]), "bgr_color": (255, 0, 0)},
-    "DEEP_BLUE": {"lower": np.array([125, 130, 40]), "upper": np.array([132, 255, 180]), "bgr_color": (128, 0, 0)},
-    "VIOLET": {"lower": np.array([133, 100, 60]), "upper": np.array([140, 255, 255]), "bgr_color": (255, 0, 128)},
-    "PURPLE": {"lower": np.array([141, 100, 50]), "upper": np.array([150, 255, 255]), "bgr_color": (255, 0, 255)},
-    
-    # [17-20: โทนชมพู-แดงท้ายแถว]
-    "MAGENTA": {"lower": np.array([151, 100, 60]), "upper": np.array([160, 255, 255]), "bgr_color": (128, 0, 255)},
-    "PINK_PURE": {"lower": np.array([161, 100, 70]), "upper": np.array([170, 255, 255]), "bgr_color": (180, 105, 255)},
-    "DEEP_PINK": {"lower": np.array([171, 120, 60]), "upper": np.array([175, 255, 255]), "bgr_color": (147, 20, 255)},
-    "RED_DEEP": {"lower": np.array([176, 140, 60]), "upper": np.array([180, 255, 255]), "bgr_color": (0, 0, 139)},
-    
-    # [21-24: โทนพิเศษ ขาว-เทา-ดำ-น้ำตาล (เช็กจากความสว่างและสดแทนเฉดสี)]
-    "BROWN": {"lower": np.array([10, 100, 30]), "upper": np.array([20, 255, 100]), "bgr_color": (19, 69, 139)},
-    "WHITE": {"lower": np.array([0, 0, 180]), "upper": np.array([180, 40, 255]), "bgr_color": (255, 255, 255)},
-    "GRAY": {"lower": np.array([0, 0, 70]), "upper": np.array([180, 40, 179]), "bgr_color": (128, 128, 128)},
-    "BLACK": {"lower": np.array([0, 0, 0]), "upper": np.array([180, 255, 45]), "bgr_color": (0, 0, 0)}
-}
+# --- 1. โหลดโมเดล AI ของ YOLOv8 (ขนาด nano - เล็กสุด เบาที่สุด คอมไม่ค้าง) ---
+# ครั้งแรกที่รัน โค้ดจะดาวน์โหลดไฟล์โมเดล 'yolov8n.pt' มาเก็บในเครื่องให้อัตโนมัติมึง
+model = YOLO('yolov8n.pt')
 
-print("กำลังดักจับหน้าต่างโปรแกรม Iriun Webcam...")
+print("กำลังตามล่าหาหน้าต่างโปรแกรม Iriun Webcam...")
 while True:
     windows = gw.getWindowsWithTitle('Iriun Webcam')
     if windows and not windows[0].isMinimized:
@@ -51,9 +16,10 @@ while True:
         break
     cv2.waitKey(1000)
 
-print("🚀 ระบบ 24-Color Object Detector สแตนด์บาย! วางของเทสต์ได้เลยมึง...")
+print("🚀 ระบบ AI Object Detector (YOLOv8) พร้อมลุยแล้วเว้ยมึง!")
 
 while True:
+    # 2. ดึงพิกัดและแคปภาพจากหน้าต่าง Iriun
     x, y, width, height = iriun_win.left, iriun_win.top, iriun_win.width, iriun_win.height
     if width <= 0 or height <= 0: continue
 
@@ -61,44 +27,43 @@ while True:
     frame = np.array(screenshot)
     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    active_colors_count = 0  # นับว่าในจอตอนนี้เจอวัตถุกี่สี
+    # 3. ส่งภาพไปให้ AI ของ YOLO ประมวลผล
+    # verbose=False คือสั่งให้มันไม่ต้องพ่น Log รกๆ ใน Terminal มึง
+    results = model(frame, verbose=False)[0]
 
-    # วนลูปนรก 24 สีสแกนทีละเฟรม
-    for color_name, values in color_ranges.items():
-        mask = cv2.inRange(hsv, values["lower"], values["upper"])
+    # 4. ดึงข้อมูลพิกัดและชนิดวัตถุที่ AI ตรวจเจอ
+    for box in results.boxes:
+        # ดึงพิกัดกรอบ (พิกเซล)
+        x1, y1, x2, y2 = map(int, box.xyxy[0])
         
-        # กรอง Noise ให้เนียนที่สุดเพราะเฉดสีมันถี่มาก
-        mask = cv2.GaussianBlur(mask, (3, 3), 0)
+        # ดึงค่าความมั่นใจของ AI (0.0 - 1.0)
+        confidence = float(box.conf[0])
         
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        for c in contours:
-            # เพิ่มเกณฑ์ขนาดพื้นที่นิดนึงเพื่อไม่ให้ขอบโต๊ะหรือแสงสะท้อนดึงกรอบไปมั่ว
-            if cv2.contourArea(c) < 800: continue
-                
-            bx, by, bw, bh = cv2.boundingRect(c)
-            center_x = int(bx + (bw / 2))
-            center_y = int(by + (bh / 2))
+        # กรองเอาเฉพาะวัตถุที่ AI มั่นใจเกิน 40% จะได้ไม่สุ่มเดามั่ว
+        if confidence < 0.4: continue
             
-            # วาดกรอบ + จุดศูนย์กลางตามรหัสสี BGR ของสีนั้นๆ
-            cv2.rectangle(frame, (bx, by), (bx + bw, by + bh), values["bgr_color"], 2)
-            cv2.circle(frame, (center_x, center_y), 5, (255, 255, 255), -1)
-            
-            # พ่นแท็กชื่อสี + พิกัด
-            label = f"{color_name} ({center_x},{center_y})"
-            cv2.putText(frame, label, (bx, by - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.4, values["bgr_color"], 1)
-            active_colors_count += 1
+        # ดึงรหัสไอดีและชื่อของวัตถุ (เช่น person, cell phone, cup)
+        class_id = int(box.cls[0])
+        object_name = model.names[class_id]
 
-    # แผงสถิติ GUI ด้านบน
-    cv2.rectangle(frame, (10, 10), (280, 50), (0, 0, 0), -1)
-    cv2.putText(frame, f"Detected Colors: {active_colors_count}", (20, 40), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        # 🎯 จุดคำนวณจุดกึ่งกลางวัตถุ (Center X, Center Y) เอาไว้ส่งให้แขนกลมึง
+        center_x = int((x1 + x2) / 2)
+        center_y = int((y1 + y2) / 2)
 
-    cv2.imshow('Mega 24-Color Object Detector', frame)
+        # 🎨 วาดกรอบและจุดศูนย์กลางลงบนหน้าจอ GUI
+        # ใช้สีเขียวสะท้อนแสงล้อมวัตถุ
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.circle(frame, (center_x, center_y), 5, (0, 0, 255), -1) # จุดแดงตรงกลาง
+
+        # พ่นป้ายชื่อวัตถุ + ค่าความมั่นใจ + พิกัด
+        label = f"{object_name} {confidence:.2f} ({center_x},{center_y})"
+        cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+    # 5. โชว์หน้าต่างผลลัพธ์ระดับโปรเจกต์อัจฉริยะ
+    cv2.imshow('YOLOv8 Real-time Object Detector', frame)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
 cv2.destroyAllWindows()
-print("ปิดระบบเซนเซอร์ 24 สีแล้วมึง")
+print("ปิดระบบ AI แล้วมึง")
