@@ -1,218 +1,84 @@
-
 import cv2
 import numpy as np
 import pygetwindow as gw
 import pyautogui
-import urllib.request
-import os
-import time
- 
-# ============================================================
-# CONFIG — แก้ค่าตรงนี้ได้เลย
-# ============================================================
-USE_IRIUN       = True      # True = ใช้ Iriun Webcam window
-                             # False = ใช้กล้องตรงๆ (0 = กล้องหลัก)
-CAMERA_INDEX    = 0          # ใช้เมื่อ USE_IRIUN = False
-CONFIDENCE_MIN  = 0.5        # ขั้นต่ำความมั่นใจ (0.0–1.0)
-NMS_THRESHOLD   = 0.4        # Non-max suppression
-SHOW_FPS        = True
-# ============================================================
- 
-# --- สีกรอบแต่ละ class (BGR) ---
-COLORS = np.random.randint(0, 255, size=(200, 3), dtype="uint8")
- 
-# ============================================================
-# 1. โหลดโมเดล YOLOv4-tiny (ดาวน์โหลดอัตโนมัติถ้ายังไม่มี)
-# ============================================================
-MODEL_DIR = "yolo_model"
-os.makedirs(MODEL_DIR, exist_ok=True)
- 
-FILES = {
-    "cfg":     ("yolov4-tiny.cfg",
-                "https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov4-tiny.cfg"),
-    "weights": ("yolov4-tiny.weights",
-                "https://github.com/AlexeyAB/darknet/releases/download/darknet_yolo_v4_pre/yolov4-tiny.weights"),
-    "names":   ("coco.names",
-                "https://raw.githubusercontent.com/pjreddie/darknet/master/data/coco.names"),
+from PIL import Image
+
+# --- 1. ตั้งค่าช่วงสี HSV 5 สีเหมือนเดิม ---
+color_ranges = {
+    "RED": {"lower": np.array([0, 120, 70]), "upper": np.array([10, 255, 255]), "bgr_color": (0, 0, 255)},
+    "YELLOW": {"lower": np.array([15, 100, 100]), "upper": np.array([35, 255, 255]), "bgr_color": (0, 255, 255)},
+    "GREEN": {"lower": np.array([36, 100, 100]), "upper": np.array([85, 255, 255]), "bgr_color": (0, 255, 0)},
+    "BLUE": {"lower": np.array([90, 100, 100]), "upper": np.array([130, 255, 255]), "bgr_color": (255, 0, 0)},
+    "ORANGE": {"lower": np.array([11, 100, 100]), "upper": np.array([25, 255, 255]), "bgr_color": (0, 165, 255)}
 }
- 
-for key, (fname, url) in FILES.items():
-    fpath = os.path.join(MODEL_DIR, fname)
-    if not os.path.exists(fpath):
-        print(f"⬇️  กำลังดาวน์โหลด {fname} ...")
-        urllib.request.urlretrieve(url, fpath)
-        print(f"✅ {fname} โหลดเสร็จ")
- 
-# โหลด class names
-with open(os.path.join(MODEL_DIR, "coco.names"), "r") as f:
-    CLASSES = [line.strip() for line in f.readlines()]
- 
-# โหลด YOLO
-print("🔧 กำลังโหลดโมเดล YOLO...")
-net = cv2.dnn.readNetFromDarknet(
-    os.path.join(MODEL_DIR, "yolov4-tiny.cfg"),
-    os.path.join(MODEL_DIR, "yolov4-tiny.weights")
-)
-net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
- 
-layer_names = net.getLayerNames()
-output_layers = [layer_names[i - 1] for i in net.getUnconnectedOutLayers().flatten()]
-print("✅ โหลดโมเดลสำเร็จ!")
- 
-# ============================================================
-# 2. ฟังก์ชันตรวจจับวัตถุ
-# ============================================================
-def detect_objects(frame):
-    h, w = frame.shape[:2]
-    blob = cv2.dnn.blobFromImage(frame, 1/255.0, (416, 416), swapRB=True, crop=False)
-    net.setInput(blob)
-    outputs = net.forward(output_layers)
- 
-    boxes, confidences, class_ids = [], [], []
- 
-    for output in outputs:
-        for detection in output:
-            scores = detection[5:]
-            class_id = np.argmax(scores)
-            confidence = scores[class_id]
-            if confidence < CONFIDENCE_MIN:
-                continue
-            cx, cy, bw, bh = (detection[:4] * np.array([w, h, w, h])).astype(int)
-            x = cx - bw // 2
-            y = cy - bh // 2
-            boxes.append([x, y, bw, bh])
-            confidences.append(float(confidence))
-            class_ids.append(class_id)
- 
-    indices = cv2.dnn.NMSBoxes(boxes, confidences, CONFIDENCE_MIN, NMS_THRESHOLD)
- 
-    results = []
-    if len(indices) > 0:
-        for i in indices.flatten():
-            results.append({
-                "box": boxes[i],
-                "confidence": confidences[i],
-                "class_id": class_ids[i],
-                "label": CLASSES[class_ids[i]] if class_ids[i] < len(CLASSES) else "unknown"
-            })
-    return results
- 
-# ============================================================
-# 3. วาดกรอบ + label ลงบน frame
-# ============================================================
-def draw_detections(frame, results):
-    for r in results:
-        x, y, bw, bh = r["box"]
-        label = r["label"]
-        conf  = r["confidence"]
-        cid   = r["class_id"]
-        color = [int(c) for c in COLORS[cid % len(COLORS)]]
- 
-        cv2.rectangle(frame, (x, y), (x + bw, y + bh), color, 2)
- 
-        text = f"{label}: {conf:.0%}"
-        (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-        cv2.rectangle(frame, (x, y - th - 8), (x + tw + 4, y), color, -1)
-        cv2.putText(frame, text, (x + 2, y - 4),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-    return frame
- 
-# ============================================================
-# 4. ฟังก์ชันดึง frame — Iriun หรือ กล้องธรรมดา
-# ============================================================
-def get_iriun_window():
-    while True:
-        wins = gw.getWindowsWithTitle("Iriun Webcam")
-        if not wins:
-            print("❌ ไม่เจอหน้าต่าง Iriun Webcam! เปิดโปรแกรมไว้ด้วยนะ")
-            time.sleep(2)
-            continue
-        win = wins[0]
-        if win.isMinimized:
-            print("⚠️ หน้าต่าง Iriun ถูกย่อไว้ กรุณาขยายขึ้นมา")
-            time.sleep(1)
-            continue
-        print("✅ เจอหน้าต่าง Iriun แล้ว!")
-        return win
- 
-def capture_iriun(win):
-    x, y, w, h = win.left, win.top, win.width, win.height
-    if w <= 0 or h <= 0:
-        return None
-    shot = pyautogui.screenshot(region=(x, y, w, h))
-    frame = np.array(shot)
-    return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
- 
-# ============================================================
-# 5. Main Loop
-# ============================================================
-print("\n🚀 เริ่มระบบตรวจจับวัตถุ...")
-print("กด Q เพื่อออก | กด S เพื่อบันทึกภาพ\n")
- 
-if USE_IRIUN:
-    iriun_win = get_iriun_window()
-    cap = None
-else:
-    cap = cv2.VideoCapture(CAMERA_INDEX)
-    if not cap.isOpened():
-        print(f"❌ เปิดกล้อง index {CAMERA_INDEX} ไม่ได้!")
-        exit()
-    print(f"✅ เปิดกล้อง index {CAMERA_INDEX} สำเร็จ")
- 
-prev_time = time.time()
-frame_count = 0
-snapshot_count = 0
- 
+
+print("กำลังตามล่าหาหน้าต่างโปรแกรม Iriun Webcam...")
+
 while True:
-    # ดึง frame
-    if USE_IRIUN:
-        frame = capture_iriun(iriun_win)
-        if frame is None:
-            continue
-    else:
-        ret, frame = cap.read()
-        if not ret:
-            print("❌ อ่านภาพจากกล้องไม่ได้")
-            break
- 
-    frame_count += 1
- 
-    # ตรวจจับ
-    results = detect_objects(frame)
- 
-    # วาดผลลัพธ์
-    frame = draw_detections(frame, results)
- 
-    # แสดง FPS
-    if SHOW_FPS:
-        now = time.time()
-        fps = 1.0 / max(now - prev_time, 1e-9)
-        prev_time = now
-        cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 128), 2)
- 
-    # แสดงจำนวนวัตถุที่เจอ
-    cv2.putText(frame, f"Objects: {len(results)}", (10, 65),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 255), 2)
- 
-    # สรุปใน terminal ทุก 30 frames
-    if frame_count % 30 == 0 and results:
-        labels = [r["label"] for r in results]
-        print(f"🔍 เจอ: {', '.join(set(labels))}")
- 
-    cv2.imshow("🎯 Object Detector — กด Q ออก | S บันทึกภาพ", frame)
- 
-    key = cv2.waitKey(1) & 0xFF
-    if key == ord("q"):
+    # 2. ค้นหาหน้าต่างโปรแกรม Iriun บน Windows มึง
+    # ชื่อหน้าต่างปกติของมันจะขึ้นต้นด้วย 'Iriun'
+    windows = gw.getWindowsWithTitle('Iriun Webcam')
+    
+    if not windows:
+        print("❌ หลงทางเว้ย! ไม่เจอโปรแกรม Iriun Webcam เปิดทิ้งไว้บนจอคอมเลย มึงลืมเปิดป่ะเนี่ย?")
+        cv2.waitKey(2000) # รอ 2 วิแล้วหาใหม่
+        continue
+        
+    # เจอแล้ว ดึงหน้าต่างตัวแรกมาใช้งาน
+    iriun_win = windows[0]
+    
+    # เช็กว่าหน้าต่างไม่ได้โดนย่อเก็บไว้ (Minimized)
+    if iriun_win.isMinimized:
+        print("⚠️ มึงย่อหน้าต่าง Iriun เก็บไว้ในแถบข้างล่างอยู่! ขยายมันขึ้นมาด่วน ไม่งั้นแคปภาพไม่ได้")
+        cv2.waitKey(1000)
+        continue
+        
+    break
+
+print("✅ เจอหน้าต่าง Iriun แล้ว! เริ่มสับภาพแบบ Real-time...")
+
+while True:
+    # 3. ดึงพิกัดตำแหน่งของหน้าต่าง Iriun บนจอคอมพิวเตอร์
+    x, y, width, height = iriun_win.left, iriun_win.top, iriun_win.width, iriun_win.height
+    
+    # กรองกรณีพิกัดเพี้ยน
+    if width <= 0 or height <= 0: continue
+
+    # 4. แคปเจอร์หน้าจอเฉพาะตรงพิกัดของหน้าต่าง Iriun
+    screenshot = pyautogui.screenshot(region=(x, y, width, height))
+    
+    # 5. แปลงภาพจาก PIL Image ให้กลายเป็น Array แบบที่ OpenCV เข้าใจ
+    frame = np.array(screenshot)
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+    # 6. แปลงเป็น HSV เพื่อวิ่งสแกนหาจุดสีวัตถุ
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    for color_name, values in color_ranges.items():
+        mask = cv2.inRange(hsv, values["lower"], values["upper"])
+        contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        
+        for c in contours:
+            if cv2.contourArea(c) < 500: continue
+                
+            bx, by, bw, bh = cv2.boundingRect(c)
+            center_x = int(bx + (bw / 2))
+            center_y = int(by + (bh / 2))
+            
+            # ตีกรอบและพ่นค่าพิกัดลงบนภาพที่แคปมา
+            cv2.rectangle(frame, (bx, by), (bx + bw, by + bh), values["bgr_color"], 2)
+            cv2.circle(frame, (center_x, center_y), 5, values["bgr_color"], -1)
+            
+            label = f"{color_name} ({center_x}, {center_y})"
+            cv2.putText(frame, label, (bx, by - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, values["bgr_color"], 2)
+
+    # 7. โชว์หน้าต่าง OpenCV แยกออกมาอีกอันเพื่อดูผลการจับสี
+    cv2.imshow('OpenCV Screen Capture Tracking', frame)
+
+    # กด 'q' เพื่อปิด
+    if cv2.waitKey(1) & 0xFF == ord('q'):
         break
-    elif key == ord("s"):
-        snapshot_count += 1
-        fname = f"snapshot_{snapshot_count:03d}.jpg"
-        cv2.imwrite(fname, frame)
-        print(f"📸 บันทึกภาพ: {fname}")
- 
-if cap:
-    cap.release()
+
 cv2.destroyAllWindows()
-print("✅ ปิดโปรแกรมเรียบร้อย")
+print("ปิดโปรแกรมแล้วมึง")
