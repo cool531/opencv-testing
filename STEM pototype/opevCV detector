@@ -46,7 +46,7 @@ while True:
         class_id = int(box.cls[0])
         object_name = model.names[class_id]
 
-        # 🎯 จุดคำนวณจุดกึ่งกลางวัตถุ (Center X, Center Y) เอาไว้ส่งให้แขนกลมึง
+        # 🎯 จุดคำนวณจุดกึ่งกลางวัตถุ (Center X, Center Y) เอาไว้ส่งให้แขนกล
         center_x = int((x1 + x2) / 2)
         center_y = int((y1 + y2) / 2)
 
